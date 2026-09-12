@@ -108,6 +108,7 @@ function Profile({ profile, notify }) { const [name, setName] = useState(profile
 function Admin({ services, refresh, notify }) {
   const [tab, setTab] = useState('services')
   const [orders, setOrders] = useState([])
+  const [catalog, setCatalog] = useState(services)
   const [draft, setDraft] = useState({ name: '', category: '', description: '', price: '', unit: '/ gói' })
 
   async function loadOrders() {
@@ -115,30 +116,42 @@ function Admin({ services, refresh, notify }) {
     if (error) return notify(error.message)
     setOrders(data || [])
   }
-  useEffect(() => { loadOrders() }, [])
+  async function loadCatalog() {
+    const { data, error } = await supabase.from('services').select('*').order('sort_order')
+    if (error) return notify(error.message)
+    setCatalog(data?.map(service => ({ ...service, price: Number(service.price) })) || [])
+  }
+  useEffect(() => { loadOrders(); loadCatalog() }, [])
 
   async function createService(event) {
     event.preventDefault()
     const { error } = await supabase.from('services').insert({
       name: draft.name.trim(), category: draft.category.trim(), description: draft.description.trim(),
-      price: Number(draft.price), unit: draft.unit.trim() || '/ gói', sort_order: services.length + 1
+      price: Number(draft.price), unit: draft.unit.trim() || '/ gói', sort_order: catalog.length + 1
     })
     if (error) return notify(error.message)
     setDraft({ name: '', category: '', description: '', price: '', unit: '/ gói' })
-    await refresh()
+    await Promise.all([refresh(), loadCatalog()])
     notify('Đã thêm dịch vụ mới.')
   }
   async function updatePrice(service, price) {
     const { error } = await supabase.from('services').update({ price: Number(price) }).eq('id', service.id)
     if (error) return notify(error.message)
-    await refresh()
+    await Promise.all([refresh(), loadCatalog()])
     notify('Đã cập nhật giá dịch vụ.')
   }
   async function toggleService(service) {
     const { error } = await supabase.from('services').update({ is_active: !service.is_active }).eq('id', service.id)
     if (error) return notify(error.message)
-    await refresh()
+    await Promise.all([refresh(), loadCatalog()])
     notify(service.is_active ? 'Đã tạm ẩn dịch vụ.' : 'Đã mở bán dịch vụ.')
+  }
+  async function deleteService(service) {
+    if (!window.confirm(`Xóa dịch vụ “${service.name}”? Thao tác này không thể hoàn tác.`)) return
+    const { error } = await supabase.from('services').delete().eq('id', service.id)
+    if (error) return notify('Không thể xóa dịch vụ đã có đơn hàng. Hãy dùng nút Ẩn để giữ lịch sử.')
+    await Promise.all([refresh(), loadCatalog()])
+    notify('Đã xóa dịch vụ.')
   }
   async function changeStatus(order, status) {
     const { error } = await supabase.from('orders').update({ status }).eq('id', order.id)
@@ -158,12 +171,12 @@ function Admin({ services, refresh, notify }) {
         <div className="two-fields"><Field label="Giá (VNĐ)" type="number" min="0" value={draft.price} onChange={e => setDraft({ ...draft, price: e.target.value })} required/><Field label="Đơn vị" value={draft.unit} onChange={e => setDraft({ ...draft, unit: e.target.value })} required/></div>
         <button className="primary-btn">Thêm dịch vụ <ChevronRight size={17}/></button>
       </form>
-      <div className="table-panel"><table><thead><tr><th>Dịch vụ</th><th>Danh mục</th><th>Giá từ</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>{services.map(s => <AdminServiceRow key={s.id} service={s} updatePrice={updatePrice} toggleService={toggleService}/>)}</tbody></table></div>
+      <div className="table-panel"><table><thead><tr><th>Dịch vụ</th><th>Danh mục</th><th>Giá từ</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>{catalog.map(s => <AdminServiceRow key={s.id} service={s} updatePrice={updatePrice} toggleService={toggleService} deleteService={deleteService}/>)}</tbody></table></div>
     </> : <div className="table-panel"><table><thead><tr><th>Mã đơn</th><th>Khách hàng</th><th>Dịch vụ</th><th>Tổng tiền</th><th>Trạng thái</th><th>Cập nhật</th></tr></thead><tbody>{orders.length ? orders.map(o => <tr key={o.id}><td>#{String(o.id).slice(0, 8).toUpperCase()}</td><td><b>{o.profiles?.full_name || 'Khách hàng'}</b><small className="table-sub">{o.profiles?.email}</small></td><td>{o.services?.name || 'Dịch vụ QM STORE'}</td><td>{money(o.total_amount)}</td><td><span className={'status ' + o.status}>{statusLabel(o.status)}</span></td><td><select className="status-select" value={o.status} onChange={e => changeStatus(o, e.target.value)}><option value="pending">Chờ xử lý</option><option value="processing">Đang xử lý</option><option value="completed">Hoàn thành</option><option value="failed">Thất bại</option><option value="refunded">Đã hoàn tiền</option></select></td></tr>) : <tr><td colSpan="6" className="empty-cell">Chưa có đơn hàng nào.</td></tr>}</tbody></table></div>}
   </section>
 }
-function AdminServiceRow({ service, updatePrice, toggleService }) {
+function AdminServiceRow({ service, updatePrice, toggleService, deleteService }) {
   const [price, setPrice] = useState(service.price)
-  return <tr><td><b>{service.name}</b><small className="table-sub">{service.description}</small></td><td>{service.category}</td><td><input className="price-input" type="number" min="0" value={price} onChange={e => setPrice(e.target.value)}/></td><td><span className={'status ' + (service.is_active ? 'completed' : 'failed')}>{service.is_active ? 'Đang bán' : 'Đang ẩn'}</span></td><td className="row-actions"><button className="small-btn" onClick={() => updatePrice(service, price)}>Lưu giá</button><button className="ghost-btn" onClick={() => toggleService(service)}>{service.is_active ? 'Ẩn' : 'Mở bán'}</button></td></tr>
+  return <tr><td><b>{service.name}</b><small className="table-sub">{service.description}</small></td><td>{service.category}</td><td><input className="price-input" type="number" min="0" value={price} onChange={e => setPrice(e.target.value)}/></td><td><span className={'status ' + (service.is_active ? 'completed' : 'failed')}>{service.is_active ? 'Đang bán' : 'Đang ẩn'}</span></td><td className="row-actions"><button className="small-btn" onClick={() => updatePrice(service, price)}>Lưu giá</button><button className="ghost-btn" onClick={() => toggleService(service)}>{service.is_active ? 'Ẩn' : 'Mở bán'}</button><button className="danger-btn" onClick={() => deleteService(service)}>Xóa</button></td></tr>
 }
 function statusLabel(status) { return ({ pending: 'Chờ xử lý', processing: 'Đang xử lý', completed: 'Hoàn thành', failed: 'Thất bại', refunded: 'Đã hoàn tiền' })[status] || status }
