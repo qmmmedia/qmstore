@@ -61,7 +61,7 @@ export default function App() {
       {screen === 'services' && <Services services={services} setScreen={setScreen} />}
       {screen === 'order' && <Order services={services} session={session} balance={profile?.wallet_balance || 0} refresh={loadAccount} notify={notify} />}
       {screen === 'orders' && <Orders orders={orders} />}
-      {screen === 'wallet' && <WalletView balance={profile?.wallet_balance || 0} notify={notify} />}
+      {screen === 'wallet' && <WalletView balance={profile?.wallet_balance || 0} notify={notify} refresh={loadAccount} />}
       {screen === 'profile' && <Profile profile={profile} notify={notify} />}
       {screen === 'admin' && isAdmin && <Admin services={services} refresh={loadServices} notify={notify} />}
     </main>
@@ -125,11 +125,12 @@ function Order({ services, session, balance, refresh, notify }) { const [service
 function serviceItemLevels(items, path) { const levels = []; let parentId = null; for (let index = 0; ; index += 1) { const children = items.filter(item => (item.parent_id || null) === parentId).sort((a, b) => a.sort_order - b.sort_order); if (!children.length) break; levels.push({ parentId, children }); const picked = path[index]; if (!picked || !children.some(item => item.id === picked)) break; parentId = picked } return levels }
 function Line({ label, value, total, green }) { return <div className={'line ' + (total ? 'total' : '')}><span>{label}</span><b className={green ? 'green' : ''}>{value}</b></div> }
 function Orders({ orders }) { return <section className="page"><h1>Đơn hàng</h1><p className="sub">Theo dõi trạng thái và lịch sử các dịch vụ bạn đã đặt.</p><div className="table-panel"><table><thead><tr><th>Mã đơn</th><th>Dịch vụ</th><th>Tổng tiền</th><th>Trạng thái</th><th>Thời gian</th></tr></thead><tbody>{orders.length ? orders.map(o => <tr key={o.id}><td>#{String(o.id).slice(0, 10).toUpperCase()}</td><td>{o.services?.name || 'Dịch vụ QM STORE'}</td><td>{money(o.total_amount)}</td><td><span className={'status ' + o.status}>{o.status === 'completed' ? 'Hoàn thành' : o.status === 'processing' ? 'Đang xử lý' : 'Chờ xử lý'}</span></td><td>{new Date(o.created_at).toLocaleDateString('vi-VN')}</td></tr>) : <tr><td colSpan="5" className="empty-cell">Chưa có đơn hàng nào.</td></tr>}</tbody></table></div></section> }
-function WalletView({ balance, notify }) { return <section className="page"><h1>Ví của tôi</h1><p className="sub">Quản lý số dư và thanh toán dịch vụ nhanh chóng.</p><div className="wallet-show"><span>QM WALLET</span><strong>{money(balance)}</strong><p>Số dư khả dụng</p><button onClick={() => notify('Tích hợp nạp tiền sẽ được kết nối qua cổng thanh toán của bạn.')}>Nạp tiền <Plus size={16}/></button></div><div className="panel info-card"><Gift/><div><b>Ưu đãi QM10</b><p>Giảm 10%, tối đa 50.000đ cho đơn từ 100.000đ.</p></div></div></section> }
+function WalletView({ balance, notify, refresh }) { const [requests, setRequests] = useState([]); const [showForm, setShowForm] = useState(false); const [loading, setLoading] = useState(false); async function loadRequests() { if (!supabase) return; const { data } = await supabase.from('wallet_topup_requests').select('*').order('created_at', { ascending: false }).limit(8); if (data) setRequests(data) } useEffect(() => { loadRequests() }, []); async function submit(event) { event.preventDefault(); if (!supabase) return notify('Hãy kết nối Supabase trước.'); const form = new FormData(event.currentTarget); const amount = Number(form.get('amount')); if (!amount || amount < 10000) return notify('Số tiền nạp tối thiểu là 10.000đ.'); setLoading(true); const { error } = await supabase.from('wallet_topup_requests').insert({ user_id: (await supabase.auth.getUser()).data.user?.id, amount, payment_reference: String(form.get('reference')).trim(), note: String(form.get('note')).trim() || null }); setLoading(false); if (error) return notify(error.message); event.currentTarget.reset(); setShowForm(false); await loadRequests(); await refresh(); notify('Đã gửi yêu cầu nạp tiền. Admin sẽ kiểm tra và duyệt.'); } return <section className="page"><h1>Ví của tôi</h1><p className="sub">Quản lý số dư và gửi yêu cầu nạp tiền để quản trị viên xác nhận.</p><div className="wallet-show"><span>QM WALLET</span><strong>{money(balance)}</strong><p>Số dư khả dụng</p><button onClick={() => setShowForm(value => !value)}>Nạp tiền <Plus size={16}/></button></div>{showForm && <form className="panel profile-form" onSubmit={submit}><h2><CreditCard size={20}/> Gửi yêu cầu nạp tiền</h2><Field label="Số tiền (VNĐ)" name="amount" type="number" min="10000" placeholder="Ví dụ: 100000" required/><Field label="Mã giao dịch / nội dung chuyển khoản" name="reference" placeholder="Ví dụ: QMSTORE 123456" required/><label className="field"><span>Ghi chú</span><textarea name="note" placeholder="Thông tin bổ sung nếu cần"/></label><button className="primary-btn" disabled={loading}>{loading ? 'Đang gửi...' : 'Gửi yêu cầu nạp tiền'} <ChevronRight size={17}/></button></form>}<div className="table-panel"><table><thead><tr><th>Yêu cầu nạp</th><th>Mã giao dịch</th><th>Trạng thái</th><th>Ngày tạo</th></tr></thead><tbody>{requests.length ? requests.map(request => <tr key={request.id}><td>{money(request.amount)}</td><td>{request.payment_reference}</td><td><span className={'status ' + (request.status === 'approved' ? 'completed' : request.status === 'rejected' ? 'failed' : 'pending')}>{request.status === 'approved' ? 'Đã duyệt' : request.status === 'rejected' ? 'Từ chối' : 'Chờ duyệt'}</span></td><td>{new Date(request.created_at).toLocaleDateString('vi-VN')}</td></tr>) : <tr><td colSpan="4" className="empty-cell">Chưa có yêu cầu nạp tiền nào.</td></tr>}</tbody></table></div><div className="panel info-card"><Gift/><div><b>Ưu đãi QM10</b><p>Giảm 10%, tối đa 50.000đ cho đơn từ 100.000đ.</p></div></div></section> }
 function Profile({ profile, notify }) { const [name, setName] = useState(profile?.full_name || ''); async function save(e) { e.preventDefault(); if (!supabase) return notify('Chế độ demo: thêm Supabase để lưu hồ sơ.'); const { error } = await supabase.from('profiles').update({ full_name: name }).eq('id', profile.id); notify(error ? error.message : 'Đã lưu thông tin hồ sơ.'); } return <section className="page"><h1>Hồ sơ cá nhân</h1><p className="sub">Cập nhật thông tin và bảo mật tài khoản của bạn.</p><form className="panel profile-form" onSubmit={save}><h2><UserRound size={20}/> Thông tin cơ bản</h2><Field label="Họ và tên" value={name} onChange={e => setName(e.target.value)} required/><Field label="Email" value={profile?.email || ''} disabled/><button className="primary-btn">Lưu thay đổi</button></form></section> }
 function Admin({ services, refresh, notify }) {
   const [tab, setTab] = useState('services')
   const [orders, setOrders] = useState([])
+  const [topups, setTopups] = useState([])
   const [catalog, setCatalog] = useState(services)
   const [draft, setDraft] = useState({ name: '', description: '' })
   const [selectedServiceId, setSelectedServiceId] = useState(null)
@@ -141,12 +142,16 @@ function Admin({ services, refresh, notify }) {
     if (error) return notify(error.message)
     setOrders(data || [])
   }
+  async function loadTopups() {
+    const { data, error } = await supabase.from('wallet_topup_requests').select('*, profiles(full_name,email)').order('created_at', { ascending: false })
+    if (!error) setTopups(data || [])
+  }
   async function loadCatalog() {
     const { data, error } = await supabase.from('services').select('*, service_items(*)').order('sort_order')
     if (error) return notify(error.message)
     setCatalog(data?.map(service => ({ ...service, price: Number(service.price), items: service.service_items || [] })) || [])
   }
-  useEffect(() => { loadOrders(); loadCatalog() }, [])
+  useEffect(() => { loadOrders(); loadCatalog(); loadTopups() }, [])
 
   async function createService(event) {
     event.preventDefault()
@@ -208,10 +213,17 @@ function Admin({ services, refresh, notify }) {
     await loadOrders()
     notify('Đã cập nhật trạng thái đơn hàng.')
   }
+  async function reviewTopup(request, status) {
+    if (!window.confirm(`${status === 'approved' ? 'Duyệt' : 'Từ chối'} yêu cầu nạp ${money(request.amount)}?`)) return
+    const { error } = await supabase.rpc('review_wallet_topup_request', { p_request_id: request.id, p_status: status })
+    if (error) return notify(error.message)
+    await loadTopups()
+    notify(status === 'approved' ? 'Đã cộng tiền vào ví khách hàng.' : 'Đã từ chối yêu cầu nạp tiền.')
+  }
 
   return <section className="page">
     <h1>Quản trị QM STORE</h1><p className="sub">Quản lý danh mục dịch vụ và theo dõi đơn hàng của khách.</p>
-    <div className="admin-tabs"><button className={tab === 'services' ? 'active' : ''} onClick={() => setTab('services')}>Dịch vụ</button><button className={tab === 'orders' ? 'active' : ''} onClick={() => setTab('orders')}>Đơn hàng <span>{orders.length}</span></button></div>
+    <div className="admin-tabs"><button className={tab === 'services' ? 'active' : ''} onClick={() => setTab('services')}>Dịch vụ</button><button className={tab === 'orders' ? 'active' : ''} onClick={() => setTab('orders')}>Đơn hàng <span>{orders.length}</span></button><button className={tab === 'topups' ? 'active' : ''} onClick={() => setTab('topups')}>Nạp tiền <span>{topups.filter(request => request.status === 'pending').length}</span></button></div>
     {tab === 'services' ? <>
       <form className="panel admin-form" onSubmit={createService}>
         <h2><Plus size={20}/> Thêm dịch vụ</h2>
@@ -221,7 +233,7 @@ function Admin({ services, refresh, notify }) {
       </form>
       <div className="table-panel"><table><thead><tr><th>Dịch vụ</th><th>Danh mục</th><th>Giá từ</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>{catalog.map(s => <AdminServiceRow key={s.id} service={s} updatePrice={updatePrice} toggleService={toggleService} deleteService={deleteService} onSelectService={id => { setSelectedServiceId(id); setItemParentId('') }}/>)}</tbody></table></div>
       {selectedServiceId && <ServiceItemsEditor service={catalog.find(service => service.id === selectedServiceId)} itemDraft={itemDraft} setItemDraft={setItemDraft} parentId={itemParentId} setParentId={setItemParentId} addItem={addServiceItem} deleteItem={deleteServiceItem} close={() => { setSelectedServiceId(null); setItemParentId('') }}/>} 
-    </> : <div className="table-panel"><table><thead><tr><th>Mã đơn</th><th>Khách hàng</th><th>Dịch vụ</th><th>Tổng tiền</th><th>Trạng thái</th><th>Cập nhật</th></tr></thead><tbody>{orders.length ? orders.map(o => <tr key={o.id}><td>#{String(o.id).slice(0, 8).toUpperCase()}</td><td><b>{o.profiles?.full_name || 'Khách hàng'}</b><small className="table-sub">{o.profiles?.email}</small></td><td>{o.services?.name || 'Dịch vụ QM STORE'}</td><td>{money(o.total_amount)}</td><td><span className={'status ' + o.status}>{statusLabel(o.status)}</span></td><td><select className="status-select" value={o.status} onChange={e => changeStatus(o, e.target.value)}><option value="pending">Chờ xử lý</option><option value="processing">Đang xử lý</option><option value="completed">Hoàn thành</option><option value="failed">Thất bại</option><option value="refunded">Đã hoàn tiền</option></select></td></tr>) : <tr><td colSpan="6" className="empty-cell">Chưa có đơn hàng nào.</td></tr>}</tbody></table></div>}
+    </> : tab === 'orders' ? <div className="table-panel"><table><thead><tr><th>Mã đơn</th><th>Khách hàng</th><th>Dịch vụ</th><th>Tổng tiền</th><th>Trạng thái</th><th>Cập nhật</th></tr></thead><tbody>{orders.length ? orders.map(o => <tr key={o.id}><td>#{String(o.id).slice(0, 8).toUpperCase()}</td><td><b>{o.profiles?.full_name || 'Khách hàng'}</b><small className="table-sub">{o.profiles?.email}</small></td><td>{o.services?.name || 'Dịch vụ QM STORE'}</td><td>{money(o.total_amount)}</td><td><span className={'status ' + o.status}>{statusLabel(o.status)}</span></td><td><select className="status-select" value={o.status} onChange={e => changeStatus(o, e.target.value)}><option value="pending">Chờ xử lý</option><option value="processing">Đang xử lý</option><option value="completed">Hoàn thành</option><option value="failed">Thất bại</option><option value="refunded">Đã hoàn tiền</option></select></td></tr>) : <tr><td colSpan="6" className="empty-cell">Chưa có đơn hàng nào.</td></tr>}</tbody></table></div> : <div className="table-panel"><table><thead><tr><th>Khách hàng</th><th>Số tiền</th><th>Mã giao dịch</th><th>Thời gian</th><th>Xử lý</th></tr></thead><tbody>{topups.length ? topups.map(request => <tr key={request.id}><td><b>{request.profiles?.full_name || 'Khách hàng'}</b><small className="table-sub">{request.profiles?.email}</small></td><td>{money(request.amount)}</td><td>{request.payment_reference}</td><td>{new Date(request.created_at).toLocaleString('vi-VN')}</td><td>{request.status === 'pending' ? <div className="row-actions"><button className="small-btn" onClick={() => reviewTopup(request, 'approved')}>Duyệt</button><button className="danger-btn" onClick={() => reviewTopup(request, 'rejected')}>Từ chối</button></div> : <span className={'status ' + (request.status === 'approved' ? 'completed' : 'failed')}>{request.status === 'approved' ? 'Đã duyệt' : 'Đã từ chối'}</span>}</td></tr>) : <tr><td colSpan="5" className="empty-cell">Chưa có yêu cầu nạp tiền nào.</td></tr>}</tbody></table></div>}
   </section>
 }
 function AdminServiceRow({ service, updatePrice, toggleService, deleteService, onSelectService }) {
