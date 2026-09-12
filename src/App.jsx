@@ -101,5 +101,65 @@ function Line({ label, value, total, green }) { return <div className={'line ' +
 function Orders({ orders }) { const content = orders.length ? orders : [{ id: 'QM-DEMO-001', services: { name: 'Thiết kế website' }, total_amount: 2500000, status: 'processing', created_at: new Date().toISOString() }]; return <section className="page"><h1>Đơn hàng</h1><p className="sub">Theo dõi trạng thái và lịch sử các dịch vụ bạn đã đặt.</p><div className="table-panel"><table><thead><tr><th>Mã đơn</th><th>Dịch vụ</th><th>Tổng tiền</th><th>Trạng thái</th><th>Thời gian</th></tr></thead><tbody>{content.map(o => <tr key={o.id}><td>#{String(o.id).slice(0, 10).toUpperCase()}</td><td>{o.services?.name || 'Dịch vụ QM STORE'}</td><td>{money(o.total_amount)}</td><td><span className={'status ' + o.status}>{o.status === 'completed' ? 'Hoàn thành' : o.status === 'processing' ? 'Đang xử lý' : 'Chờ xử lý'}</span></td><td>{new Date(o.created_at).toLocaleDateString('vi-VN')}</td></tr>)}</tbody></table></div></section> }
 function WalletView({ balance, notify }) { return <section className="page"><h1>Ví của tôi</h1><p className="sub">Quản lý số dư và thanh toán dịch vụ nhanh chóng.</p><div className="wallet-show"><span>QM WALLET</span><strong>{money(balance)}</strong><p>Số dư khả dụng</p><button onClick={() => notify('Tích hợp nạp tiền sẽ được kết nối qua cổng thanh toán của bạn.')}>Nạp tiền <Plus size={16}/></button></div><div className="panel info-card"><Gift/><div><b>Ưu đãi QM10</b><p>Giảm 10%, tối đa 50.000đ cho đơn từ 100.000đ.</p></div></div></section> }
 function Profile({ profile, notify }) { const [name, setName] = useState(profile?.full_name || ''); async function save(e) { e.preventDefault(); if (!supabase) return notify('Chế độ demo: thêm Supabase để lưu hồ sơ.'); const { error } = await supabase.from('profiles').update({ full_name: name }).eq('id', profile.id); notify(error ? error.message : 'Đã lưu thông tin hồ sơ.'); } return <section className="page"><h1>Hồ sơ cá nhân</h1><p className="sub">Cập nhật thông tin và bảo mật tài khoản của bạn.</p><form className="panel profile-form" onSubmit={save}><h2><UserRound size={20}/> Thông tin cơ bản</h2><Field label="Họ và tên" value={name} onChange={e => setName(e.target.value)} required/><Field label="Email" value={profile?.email || ''} disabled/><button className="primary-btn">Lưu thay đổi</button></form></section> }
-function Admin({ services, refresh, notify }) { async function update(service, price) { const { error } = await supabase.from('services').update({ price: Number(price) }).eq('id', service.id); if (error) notify(error.message); else { await refresh(); notify('Đã cập nhật giá dịch vụ.'); } } return <section className="page"><h1>Quản trị dịch vụ</h1><p className="sub">Cập nhật bảng giá. Chỉ tài khoản Admin mới thấy khu vực này.</p><div className="table-panel"><table><thead><tr><th>Dịch vụ</th><th>Danh mục</th><th>Giá từ</th><th>Trạng thái</th><th/></tr></thead><tbody>{services.map(s => <AdminRow key={s.id} service={s} update={update}/>)}</tbody></table></div></section> }
-function AdminRow({ service, update }) { const [price, setPrice] = useState(service.price); return <tr><td><b>{service.name}</b></td><td>{service.category}</td><td><input className="price-input" type="number" value={price} onChange={e => setPrice(e.target.value)}/></td><td><span className="status completed">Đang bán</span></td><td><button className="small-btn" onClick={() => update(service, price)}>Lưu</button></td></tr> }
+function Admin({ services, refresh, notify }) {
+  const [tab, setTab] = useState('services')
+  const [orders, setOrders] = useState([])
+  const [draft, setDraft] = useState({ name: '', category: '', description: '', price: '', unit: '/ gói' })
+
+  async function loadOrders() {
+    const { data, error } = await supabase.from('orders').select('*, profiles(full_name,email), services(name)').order('created_at', { ascending: false })
+    if (error) return notify(error.message)
+    setOrders(data || [])
+  }
+  useEffect(() => { loadOrders() }, [])
+
+  async function createService(event) {
+    event.preventDefault()
+    const { error } = await supabase.from('services').insert({
+      name: draft.name.trim(), category: draft.category.trim(), description: draft.description.trim(),
+      price: Number(draft.price), unit: draft.unit.trim() || '/ gói', sort_order: services.length + 1
+    })
+    if (error) return notify(error.message)
+    setDraft({ name: '', category: '', description: '', price: '', unit: '/ gói' })
+    await refresh()
+    notify('Đã thêm dịch vụ mới.')
+  }
+  async function updatePrice(service, price) {
+    const { error } = await supabase.from('services').update({ price: Number(price) }).eq('id', service.id)
+    if (error) return notify(error.message)
+    await refresh()
+    notify('Đã cập nhật giá dịch vụ.')
+  }
+  async function toggleService(service) {
+    const { error } = await supabase.from('services').update({ is_active: !service.is_active }).eq('id', service.id)
+    if (error) return notify(error.message)
+    await refresh()
+    notify(service.is_active ? 'Đã tạm ẩn dịch vụ.' : 'Đã mở bán dịch vụ.')
+  }
+  async function changeStatus(order, status) {
+    const { error } = await supabase.from('orders').update({ status }).eq('id', order.id)
+    if (error) return notify(error.message)
+    await loadOrders()
+    notify('Đã cập nhật trạng thái đơn hàng.')
+  }
+
+  return <section className="page">
+    <h1>Quản trị QM STORE</h1><p className="sub">Quản lý danh mục dịch vụ và theo dõi đơn hàng của khách.</p>
+    <div className="admin-tabs"><button className={tab === 'services' ? 'active' : ''} onClick={() => setTab('services')}>Dịch vụ</button><button className={tab === 'orders' ? 'active' : ''} onClick={() => setTab('orders')}>Đơn hàng <span>{orders.length}</span></button></div>
+    {tab === 'services' ? <>
+      <form className="panel admin-form" onSubmit={createService}>
+        <h2><Plus size={20}/> Thêm dịch vụ</h2>
+        <div className="two-fields"><Field label="Tên dịch vụ" value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} required/><Field label="Danh mục" value={draft.category} onChange={e => setDraft({ ...draft, category: e.target.value })} required/></div>
+        <Field label="Mô tả" value={draft.description} onChange={e => setDraft({ ...draft, description: e.target.value })} required/>
+        <div className="two-fields"><Field label="Giá (VNĐ)" type="number" min="0" value={draft.price} onChange={e => setDraft({ ...draft, price: e.target.value })} required/><Field label="Đơn vị" value={draft.unit} onChange={e => setDraft({ ...draft, unit: e.target.value })} required/></div>
+        <button className="primary-btn">Thêm dịch vụ <ChevronRight size={17}/></button>
+      </form>
+      <div className="table-panel"><table><thead><tr><th>Dịch vụ</th><th>Danh mục</th><th>Giá từ</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>{services.map(s => <AdminServiceRow key={s.id} service={s} updatePrice={updatePrice} toggleService={toggleService}/>)}</tbody></table></div>
+    </> : <div className="table-panel"><table><thead><tr><th>Mã đơn</th><th>Khách hàng</th><th>Dịch vụ</th><th>Tổng tiền</th><th>Trạng thái</th><th>Cập nhật</th></tr></thead><tbody>{orders.length ? orders.map(o => <tr key={o.id}><td>#{String(o.id).slice(0, 8).toUpperCase()}</td><td><b>{o.profiles?.full_name || 'Khách hàng'}</b><small className="table-sub">{o.profiles?.email}</small></td><td>{o.services?.name || 'Dịch vụ QM STORE'}</td><td>{money(o.total_amount)}</td><td><span className={'status ' + o.status}>{statusLabel(o.status)}</span></td><td><select className="status-select" value={o.status} onChange={e => changeStatus(o, e.target.value)}><option value="pending">Chờ xử lý</option><option value="processing">Đang xử lý</option><option value="completed">Hoàn thành</option><option value="failed">Thất bại</option><option value="refunded">Đã hoàn tiền</option></select></td></tr>) : <tr><td colSpan="6" className="empty-cell">Chưa có đơn hàng nào.</td></tr>}</tbody></table></div>}
+  </section>
+}
+function AdminServiceRow({ service, updatePrice, toggleService }) {
+  const [price, setPrice] = useState(service.price)
+  return <tr><td><b>{service.name}</b><small className="table-sub">{service.description}</small></td><td>{service.category}</td><td><input className="price-input" type="number" min="0" value={price} onChange={e => setPrice(e.target.value)}/></td><td><span className={'status ' + (service.is_active ? 'completed' : 'failed')}>{service.is_active ? 'Đang bán' : 'Đang ẩn'}</span></td><td className="row-actions"><button className="small-btn" onClick={() => updatePrice(service, price)}>Lưu giá</button><button className="ghost-btn" onClick={() => toggleService(service)}>{service.is_active ? 'Ẩn' : 'Mở bán'}</button></td></tr>
+}
+function statusLabel(status) { return ({ pending: 'Chờ xử lý', processing: 'Đang xử lý', completed: 'Hoàn thành', failed: 'Thất bại', refunded: 'Đã hoàn tiền' })[status] || status }
