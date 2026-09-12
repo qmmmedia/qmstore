@@ -18,7 +18,6 @@ const nav = [
 export default function App() {
   const [theme, setTheme] = useState('dark')
   const [screen, setScreen] = useState('home')
-  const [catalogServiceId, setCatalogServiceId] = useState(null)
   const [authMode, setAuthMode] = useState('login')
   const [session, setSession] = useState(null)
   const [profile, setProfile] = useState(null)
@@ -55,11 +54,11 @@ export default function App() {
 
   if (!session) return <AuthScreen mode={authMode} setMode={setAuthMode} notify={notify} />
   return <div className="app-shell" data-theme={theme}>
-    <Sidebar screen={screen} setScreen={setScreen} services={services} openService={id => { setCatalogServiceId(id); setScreen('services'); setDrawer(false) }} isAdmin={isAdmin} drawer={drawer} close={() => setDrawer(false)} onLogout={() => supabase.auth.signOut()} />
+    <Sidebar screen={screen} setScreen={setScreen} isAdmin={isAdmin} drawer={drawer} close={() => setDrawer(false)} onLogout={() => supabase.auth.signOut()} />
     <main className="main">
       <header className="topbar"><button className="mobile-menu" onClick={() => setDrawer(true)}><Menu /></button><div className="search"><Search size={18}/><input placeholder="Tìm dịch vụ, đơn hàng..." /></div><div className="top-actions"><button className="square" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label="Đổi giao diện">{theme === 'dark' ? <Sun size={18}/> : <Moon size={18}/>}</button><button className="square" onClick={() => notify('Bạn có 2 thông báo mới')} aria-label="Thông báo"><Bell size={18}/></button><div className="user-pill"><span>{displayName.slice(0, 1).toUpperCase()}</span><b>{displayName}</b></div></div></header>
       {screen === 'home' && <Home setScreen={setScreen} services={services} balance={profile?.wallet_balance || 0} orders={orders} />}
-      {screen === 'services' && <Services services={services} setScreen={setScreen} openServiceId={catalogServiceId} />}
+      {screen === 'services' && <Services services={services} setScreen={setScreen} />}
       {screen === 'order' && <Order services={services} session={session} balance={profile?.wallet_balance || 0} refresh={loadAccount} notify={notify} />}
       {screen === 'orders' && <Orders orders={orders} />}
       {screen === 'wallet' && <WalletView balance={profile?.wallet_balance || 0} notify={notify} />}
@@ -89,24 +88,9 @@ function AuthScreen({ mode, setMode, notify }) {
 function Field({ label, ...props }) { return <label className="field"><span>{label}</span><input {...props}/></label> }
 function BrandMark() { return <span className="brand-mark">QM</span> }
 
-function Sidebar({ screen, setScreen, services, openService, isAdmin, drawer, close, onLogout }) {
+function Sidebar({ screen, setScreen, isAdmin, drawer, close, onLogout }) {
   const navigate = key => { setScreen(key); close() }
-  return <><aside className={'sidebar ' + (drawer ? 'open' : '')}><div className="sidebar-top"><div className="brand"><BrandMark/> <b>QM STORE</b></div><button className="close-menu" onClick={close}><X/></button></div><div className="nav-label">KHÁM PHÁ</div><nav>{nav.map(([key, Icon, label]) => <button key={key} className={screen === key ? 'active' : ''} onClick={() => navigate(key)}><Icon size={18}/>{label}</button>)}</nav>{services.length > 0 && <><div className="nav-label">DANH MỤC DỊCH VỤ</div><div className="sidebar-service-tree">{services.map(service => <SidebarServiceBranch key={service.id} service={service} openService={openService}/>)}</div></>}{isAdmin && <><div className="nav-label">QUẢN TRỊ</div><nav><button className={screen === 'admin' ? 'active' : ''} onClick={() => navigate('admin')}><Settings size={18}/>Quản lý dịch vụ</button></nav></>}<div className="support"><b>Đồng hành cùng bạn</b><p>Cần hỗ trợ về dịch vụ? Gửi ticket cho QM STORE.</p><button>Liên hệ hỗ trợ</button></div><button className="logout" onClick={onLogout}><LogOut size={17}/>Đăng xuất</button></aside>{drawer && <button className="backdrop" aria-label="Đóng menu" onClick={close}/>}</>
-}
-function SidebarServiceBranch({ service, openService }) {
-  const [expanded, setExpanded] = useState(false)
-  const items = service.items || []
-  const roots = items.filter(item => !item.parent_id).sort((a, b) => a.sort_order - b.sort_order)
-  return <div className="sidebar-service-branch"><button className="sidebar-service-parent" onClick={() => roots.length ? setExpanded(value => !value) : openService(service.id)}><span>{service.name}</span><ChevronRight className={expanded ? 'rotate' : ''} size={15}/></button>{expanded && <SidebarServiceChildren items={items} parentId={null} depth={0} openService={() => openService(service.id)}/>}</div>
-}
-function SidebarServiceChildren({ items, parentId, depth, openService }) {
-  const children = items.filter(item => (item.parent_id || null) === parentId).sort((a, b) => a.sort_order - b.sort_order)
-  return <div>{children.map(item => <SidebarServiceItem key={item.id} item={item} items={items} depth={depth} openService={openService}/>)}</div>
-}
-function SidebarServiceItem({ item, items, depth, openService }) {
-  const [expanded, setExpanded] = useState(false)
-  const hasChildren = items.some(child => child.parent_id === item.id)
-  return <div className="sidebar-service-child"><button style={{ paddingLeft: `${18 + depth * 14}px` }} onClick={() => hasChildren ? setExpanded(value => !value) : openService()}><span>{item.title}</span>{hasChildren && <ChevronRight className={expanded ? 'rotate' : ''} size={14}/>}</button>{hasChildren && expanded && <SidebarServiceChildren items={items} parentId={item.id} depth={depth + 1} openService={openService}/>}</div>
+  return <><aside className={'sidebar ' + (drawer ? 'open' : '')}><div className="sidebar-top"><div className="brand"><BrandMark/> <b>QM STORE</b></div><button className="close-menu" onClick={close}><X/></button></div><div className="nav-label">KHÁM PHÁ</div><nav>{nav.map(([key, Icon, label]) => <button key={key} className={screen === key ? 'active' : ''} onClick={() => navigate(key)}><Icon size={18}/>{label}</button>)}</nav>{isAdmin && <><div className="nav-label">QUẢN TRỊ</div><nav><button className={screen === 'admin' ? 'active' : ''} onClick={() => navigate('admin')}><Settings size={18}/>Quản lý dịch vụ</button></nav></>}<div className="support"><b>Đồng hành cùng bạn</b><p>Cần hỗ trợ về dịch vụ? Gửi ticket cho QM STORE.</p><button>Liên hệ hỗ trợ</button></div><button className="logout" onClick={onLogout}><LogOut size={17}/>Đăng xuất</button></aside>{drawer && <button className="backdrop" aria-label="Đóng menu" onClick={close}/>}</>
 }
 
 function Home({ setScreen, services, balance, orders }) {
@@ -116,10 +100,10 @@ function Home({ setScreen, services, balance, orders }) {
 }
 function SectionTitle({ title, action, onClick }) { return <div className="section-title"><h2>{title}</h2>{action && <button onClick={onClick}>{action} <ChevronRight size={15}/></button>}</div> }
 function Metric({ label, value, hint }) { return <article className="metric"><span>{label}</span><strong>{value}</strong><small>↗ {hint}</small></article> }
-function Services({ services, setScreen, openServiceId }) {
+function Services({ services, setScreen }) {
   const [selectedService, setSelectedService] = useState(null)
-  useEffect(() => { if (openServiceId) { const service = services.find(item => item.id === openServiceId); if (service) setSelectedService(service) } }, [openServiceId, services])
-  return <section className="page"><h1>Dịch vụ QM STORE</h1><p className="sub">Giải pháp digital minh bạch, triển khai theo yêu cầu của bạn.</p>{services.length ? <div className="service-grid all-services">{services.map(s => <ServiceCard key={s.id} service={s} onOrder={() => setScreen('order')} onBrowse={() => setSelectedService(s)}/>)}</div> : <div className="panel empty-services"><Package size={26}/><h2>Chưa có dịch vụ nào</h2><p>Admin có thể thêm dịch vụ mới trong khu vực Quản lý dịch vụ.</p></div>}{selectedService && <ServiceCategoryBrowser service={selectedService} close={() => setSelectedService(null)} onOrder={() => { setSelectedService(null); setScreen('order') }}/>}</section>
+  if (selectedService) return <section className="page"><button className="back-category" onClick={() => setSelectedService(null)}>← Tất cả dịch vụ</button><h1>{selectedService.name}</h1><p className="sub">Chọn danh mục phù hợp để tiếp tục.</p><ServiceCategoryBrowser service={selectedService} close={() => setSelectedService(null)} onOrder={() => { setSelectedService(null); setScreen('order') }}/></section>
+  return <section className="page"><h1>Dịch vụ QM STORE</h1><p className="sub">Chọn một dịch vụ để xem danh mục con.</p>{services.length ? <div className="parent-service-list">{services.map(service => <button className="parent-service-row" key={service.id} onClick={() => setSelectedService(service)}><span className="service-icon">{service.icon || '✦'}</span><span><b>{service.name}</b><small>{service.description}</small></span><ChevronRight size={20}/></button>)}</div> : <div className="panel empty-services"><Package size={26}/><h2>Chưa có dịch vụ nào</h2><p>Admin có thể thêm dịch vụ mới trong khu vực Quản lý dịch vụ.</p></div>}</section>
 }
 function ServiceCard({ service, onOrder, onBrowse }) { return <article className="service-card"><div className="service-icon">{service.icon || '✦'}</div><span className="available">ĐANG BÁN</span><h3>{service.name}</h3><p>{service.description}</p>{service.items?.length > 0 && <span className="category-count">{service.items.filter(item => !item.parent_id).length} danh mục</span>}<b>{money(service.price)}<small>{service.unit}</small></b>{onBrowse && <button className="browse-btn" onClick={onBrowse}>Xem danh mục <ChevronRight size={15}/></button>}<button onClick={onOrder}>Đặt dịch vụ <ChevronRight size={15}/></button></article> }
 function ServiceCategoryBrowser({ service, close, onOrder }) {
