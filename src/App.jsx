@@ -3,10 +3,12 @@ import { supabase, hasSupabase } from './lib/supabase'
 import { Bell, ChevronRight, CreditCard, FileText, Gift, LayoutDashboard, LogOut, Menu, Moon, Package, Plus, Search, Settings, ShoppingCart, Sun, UserRound, Wallet, X } from 'lucide-react'
 
 const demoServices = [
-  { id: 'website', name: 'Thiết kế website', category: 'Phát triển web', description: 'Website thương hiệu, landing page và tối ưu chuyển đổi.', price: 2500000, unit: ' / dự án', icon: '⌘' },
-  { id: 'ads', name: 'Quảng cáo số', category: 'Digital ads', description: 'Thiết lập, tối ưu và báo cáo hiệu quả chiến dịch.', price: 200000, unit: ' / chiến dịch', icon: '◈' },
-  { id: 'content', name: 'Quản trị nội dung', category: 'Content', description: 'Lập kế hoạch và sản xuất nội dung cho thương hiệu.', price: 850000, unit: ' / gói', icon: '✦' },
-  { id: 'consulting', name: 'Tư vấn thương hiệu', category: 'Strategy', description: 'Định vị, thông điệp và lộ trình phát triển kênh số.', price: 500000, unit: ' / buổi', icon: '◌' }
+  { id: 'social-growth', name: 'Tăng trưởng mạng xã hội', category: 'Social media', description: 'Xây cộng đồng, nội dung và quảng cáo hợp lệ cho kênh của khách hàng.', price: 900000, unit: ' / gói', icon: '◈' },
+  { id: 'website', name: 'Website các loại', category: 'Phát triển web', description: 'Landing page, website doanh nghiệp và cửa hàng trực tuyến.', price: 2500000, unit: ' / dự án', icon: '⌘' },
+  { id: 'ads', name: 'Chạy quảng cáo', category: 'Digital ads', description: 'Thiết lập, tối ưu và báo cáo theo chính sách nền tảng.', price: 500000, unit: ' / chiến dịch', icon: '✦' },
+  { id: 'content-video', name: 'Nội dung & video', category: 'Content', description: 'Kế hoạch nội dung, thiết kế và video ngắn cho thương hiệu.', price: 750000, unit: ' / gói', icon: '◌' },
+  { id: 'automation', name: 'Tự động hóa kênh sở hữu', category: 'Automation', description: 'Chatbot và quy trình tự động cho kênh do khách hàng sở hữu.', price: 1200000, unit: ' / gói', icon: '✦' },
+  { id: 'strategy', name: 'Tư vấn chiến lược số', category: 'Strategy', description: 'Đánh giá kênh và xây lộ trình tăng trưởng bền vững.', price: 600000, unit: ' / buổi', icon: '◌' }
 ]
 const money = value => new Intl.NumberFormat('vi-VN').format(Number(value || 0)) + 'đ'
 const nav = [
