@@ -1,0 +1,105 @@
+import { useEffect, useMemo, useState } from 'react'
+import { supabase, hasSupabase } from './lib/supabase'
+import { Bell, ChevronRight, CreditCard, FileText, Gift, LayoutDashboard, LogOut, Menu, Moon, Package, Plus, Search, Settings, ShoppingCart, Sun, UserRound, Wallet, X } from 'lucide-react'
+
+const demoServices = [
+  { id: 'website', name: 'Thiết kế website', category: 'Phát triển web', description: 'Website thương hiệu, landing page và tối ưu chuyển đổi.', price: 2500000, unit: ' / dự án', icon: '⌘' },
+  { id: 'ads', name: 'Quảng cáo số', category: 'Digital ads', description: 'Thiết lập, tối ưu và báo cáo hiệu quả chiến dịch.', price: 200000, unit: ' / chiến dịch', icon: '◈' },
+  { id: 'content', name: 'Quản trị nội dung', category: 'Content', description: 'Lập kế hoạch và sản xuất nội dung cho thương hiệu.', price: 850000, unit: ' / gói', icon: '✦' },
+  { id: 'consulting', name: 'Tư vấn thương hiệu', category: 'Strategy', description: 'Định vị, thông điệp và lộ trình phát triển kênh số.', price: 500000, unit: ' / buổi', icon: '◌' }
+]
+const money = value => new Intl.NumberFormat('vi-VN').format(Number(value || 0)) + 'đ'
+const nav = [
+  ['home', LayoutDashboard, 'Tổng quan'], ['services', Package, 'Dịch vụ'], ['order', ShoppingCart, 'Đặt dịch vụ'], ['orders', FileText, 'Đơn hàng'], ['wallet', Wallet, 'Ví của tôi'], ['profile', UserRound, 'Hồ sơ']
+]
+
+export default function App() {
+  const [theme, setTheme] = useState('dark')
+  const [screen, setScreen] = useState('home')
+  const [authMode, setAuthMode] = useState('login')
+  const [session, setSession] = useState(null)
+  const [profile, setProfile] = useState(null)
+  const [services, setServices] = useState(demoServices)
+  const [orders, setOrders] = useState([])
+  const [notice, setNotice] = useState('')
+  const [drawer, setDrawer] = useState(false)
+
+  const notify = message => { setNotice(message); window.setTimeout(() => setNotice(''), 3200) }
+  useEffect(() => {
+    if (!supabase) return
+    supabase.auth.getSession().then(({ data }) => setSession(data.session))
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => setSession(nextSession))
+    return () => listener.subscription.unsubscribe()
+  }, [])
+  useEffect(() => { if (session) loadAccount(); else { setProfile(null); setOrders([]) } }, [session])
+  useEffect(() => { loadServices() }, [])
+
+  async function loadServices() {
+    if (!supabase) return
+    const { data } = await supabase.from('services').select('*').eq('is_active', true).order('sort_order')
+    if (data?.length) setServices(data.map(s => ({ ...s, price: Number(s.price), unit: s.unit || ' / gói', icon: '✦' })))
+  }
+  async function loadAccount() {
+    const [{ data: profileRow }, { data: orderRows }] = await Promise.all([
+      supabase.from('profiles').select('*').eq('id', session.user.id).single(),
+      supabase.from('orders').select('*, services(name)').eq('user_id', session.user.id).order('created_at', { ascending: false }).limit(8)
+    ])
+    setProfile(profileRow || { full_name: session.user.email?.split('@')[0], wallet_balance: 0, role: 'user' })
+    setOrders(orderRows || [])
+  }
+  const isAdmin = profile?.role === 'admin'
+  const displayName = profile?.full_name || session?.user?.email?.split('@')[0] || 'Khách hàng'
+
+  if (!session) return <AuthScreen mode={authMode} setMode={setAuthMode} notify={notify} />
+  return <div className="app-shell" data-theme={theme}>
+    <Sidebar screen={screen} setScreen={setScreen} isAdmin={isAdmin} drawer={drawer} close={() => setDrawer(false)} onLogout={() => supabase.auth.signOut()} />
+    <main className="main">
+      <header className="topbar"><button className="mobile-menu" onClick={() => setDrawer(true)}><Menu /></button><div className="search"><Search size={18}/><input placeholder="Tìm dịch vụ, đơn hàng..." /></div><div className="top-actions"><button className="square" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label="Đổi giao diện">{theme === 'dark' ? <Sun size={18}/> : <Moon size={18}/>}</button><button className="square" onClick={() => notify('Bạn có 2 thông báo mới')} aria-label="Thông báo"><Bell size={18}/></button><div className="user-pill"><span>{displayName.slice(0, 1).toUpperCase()}</span><b>{displayName}</b></div></div></header>
+      {screen === 'home' && <Home setScreen={setScreen} services={services} balance={profile?.wallet_balance || 0} orders={orders} />}
+      {screen === 'services' && <Services services={services} setScreen={setScreen} />}
+      {screen === 'order' && <Order services={services} session={session} balance={profile?.wallet_balance || 0} refresh={loadAccount} notify={notify} />}
+      {screen === 'orders' && <Orders orders={orders} />}
+      {screen === 'wallet' && <WalletView balance={profile?.wallet_balance || 0} notify={notify} />}
+      {screen === 'profile' && <Profile profile={profile} notify={notify} />}
+      {screen === 'admin' && isAdmin && <Admin services={services} refresh={loadServices} notify={notify} />}
+    </main>
+    {notice && <div className="toast">{notice}</div>}
+  </div>
+}
+
+function AuthScreen({ mode, setMode, notify }) {
+  const [loading, setLoading] = useState(false)
+  async function submit(event) {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    if (!hasSupabase) return notify('Hãy thêm VITE_SUPABASE_URL và VITE_SUPABASE_ANON_KEY vào .env.local trước.')
+    setLoading(true)
+    const email = form.get('email'), password = form.get('password')
+    const result = mode === 'login' ? await supabase.auth.signInWithPassword({ email, password }) : await supabase.auth.signUp({ email, password, options: { data: { full_name: form.get('fullName') } } })
+    setLoading(false)
+    if (result.error) notify(result.error.message)
+    else if (mode === 'register') notify('Đăng ký thành công. Hãy kiểm tra email để xác nhận tài khoản.')
+  }
+  const login = mode === 'login'
+  return <div className="auth-page"><section className="auth-art"><div className="brand"><BrandMark/> <b>QM STORE</b></div><div className="auth-copy"><span className="eyebrow">DIGITAL SERVICES</span><h1>{login ? 'Chào mừng trở lại.' : 'Nền tảng dịch vụ số cho doanh nghiệp.'}</h1><p>Đặt dịch vụ, quản lý đơn hàng và thanh toán minh bạch trong một không gian thống nhất.</p><div className="trust"><span>⚡ Nhanh chóng</span><span>◈ An toàn</span><span>✦ Dễ quản lý</span></div></div><div className="orb orb-one"/><div className="orb orb-two"/></section><section className="auth-form-area"><form className="auth-card" onSubmit={submit}><div className="mobile-brand"><BrandMark/> <b>QM STORE</b></div><h2>{login ? 'Chào mừng trở lại' : 'Tạo tài khoản'}</h2><p>{login ? 'Đăng nhập để tiếp tục quản lý dịch vụ của bạn.' : 'Bắt đầu quản lý các dịch vụ của bạn.'}</p>{!login && <Field label="Họ và tên" name="fullName" placeholder="Nhập họ và tên của bạn" required/>}<Field label="Email" name="email" type="email" placeholder="you@example.com" required/><Field label="Mật khẩu" name="password" type="password" placeholder="••••••••" required/>{!login && <Field label="Nhập lại mật khẩu" type="password" placeholder="••••••••" required/>}{login ? <div className="remember"><label><input type="checkbox"/> Ghi nhớ đăng nhập</label><button type="button">Quên mật khẩu?</button></div> : <label className="terms"><input type="checkbox" required/> Tôi đồng ý với Điều khoản sử dụng</label>}<button className="primary-btn" disabled={loading}>{loading ? 'Đang xử lý...' : login ? 'Đăng nhập' : 'Tạo tài khoản'} <ChevronRight size={17}/></button><div className="switch-auth">{login ? 'Chưa có tài khoản? ' : 'Đã có tài khoản? '}<button type="button" onClick={() => setMode(login ? 'register' : 'login')}>{login ? 'Đăng ký ngay' : 'Đăng nhập'}</button></div></form></section></div>
+}
+function Field({ label, ...props }) { return <label className="field"><span>{label}</span><input {...props}/></label> }
+function BrandMark() { return <span className="brand-mark">QM</span> }
+
+function Sidebar({ screen, setScreen, isAdmin, drawer, close, onLogout }) { const navigate = key => { setScreen(key); close() }; return <><aside className={'sidebar ' + (drawer ? 'open' : '')}><div className="sidebar-top"><div className="brand"><BrandMark/> <b>QM STORE</b></div><button className="close-menu" onClick={close}><X/></button></div><div className="nav-label">KHÁM PHÁ</div><nav>{nav.map(([key, Icon, label]) => <button key={key} className={screen === key ? 'active' : ''} onClick={() => navigate(key)}><Icon size={18}/>{label}</button>)}</nav>{isAdmin && <><div className="nav-label">QUẢN TRỊ</div><nav><button className={screen === 'admin' ? 'active' : ''} onClick={() => navigate('admin')}><Settings size={18}/>Quản lý dịch vụ</button></nav></>}<div className="support"><b>Đồng hành cùng bạn</b><p>Cần hỗ trợ về dịch vụ? Gửi ticket cho QM STORE.</p><button>Liên hệ hỗ trợ</button></div><button className="logout" onClick={onLogout}><LogOut size={17}/>Đăng xuất</button></aside>{drawer && <button className="backdrop" aria-label="Đóng menu" onClick={close}/>}</> }
+
+function Home({ setScreen, services, balance, orders }) { return <section className="page"><h1>Chào bạn 👋</h1><p className="sub">Mọi dịch vụ số của bạn, ở một nơi rõ ràng và dễ theo dõi.</p><div className="hero-grid"><article className="hero"><span className="eyebrow">QM STORE / DIGITAL SERVICES</span><h2>Đặt dịch vụ nhanh, theo dõi minh bạch.</h2><p>Chọn gói phù hợp, áp ưu đãi và quản lý đơn hàng trong một luồng đơn giản.</p><button onClick={() => setScreen('order')}>Đặt dịch vụ nhanh <ChevronRight size={16}/></button><div className="hero-bag">QM</div></article><article className="balance-card"><span>Số dư khả dụng</span><strong>{money(balance)}</strong><div><button onClick={() => setScreen('wallet')}><Plus size={16}/> Nạp tiền</button><button className="soft" onClick={() => setScreen('orders')}>Lịch sử</button></div></article></div><SectionTitle title="Tổng quan tháng này"/><div className="metrics"><Metric label="Đơn đã đặt" value={orders.length || 12} hint="Cập nhật hôm nay"/><Metric label="Đang xử lý" value="03" hint="Đơn mới nhất"/><Metric label="Đã hoàn thành" value="09" hint="Tỷ lệ 96%"/><Metric label="Ưu đãi khả dụng" value="02" hint="Dùng ngay"/></div><SectionTitle title="Dịch vụ nổi bật" action="Xem tất cả" onClick={() => setScreen('services')}/><div className="service-grid">{services.slice(0, 3).map(s => <ServiceCard key={s.id} service={s} onOrder={() => setScreen('order')}/>)}</div></section> }
+function SectionTitle({ title, action, onClick }) { return <div className="section-title"><h2>{title}</h2>{action && <button onClick={onClick}>{action} <ChevronRight size={15}/></button>}</div> }
+function Metric({ label, value, hint }) { return <article className="metric"><span>{label}</span><strong>{value}</strong><small>↗ {hint}</small></article> }
+function Services({ services, setScreen }) { return <section className="page"><h1>Dịch vụ QM STORE</h1><p className="sub">Giải pháp digital minh bạch, triển khai theo yêu cầu của bạn.</p><div className="service-grid all-services">{services.map(s => <ServiceCard key={s.id} service={s} onOrder={() => setScreen('order')}/>)}</div></section> }
+function ServiceCard({ service, onOrder }) { return <article className="service-card"><div className="service-icon">{service.icon || '✦'}</div><span className="available">ĐANG BÁN</span><h3>{service.name}</h3><p>{service.description}</p><b>{money(service.price)}<small>{service.unit}</small></b><button onClick={onOrder}>Đặt dịch vụ <ChevronRight size={15}/></button></article> }
+
+function Order({ services, session, balance, refresh, notify }) { const [serviceId, setServiceId] = useState(services[0]?.id); const [quantity, setQuantity] = useState(1); const [coupon, setCoupon] = useState(''); const selected = useMemo(() => services.find(s => s.id === serviceId) || services[0], [services, serviceId]); const discount = coupon.toUpperCase() === 'QM10' ? Math.min(50000, Math.round(selected.price * quantity * .1)) : 0; const total = selected.price * quantity - discount
+  async function place(event) { event.preventDefault(); if (!supabase) return notify('Chế độ demo: thêm Supabase vào .env.local để tạo đơn thật.'); const { error } = await supabase.rpc('create_order', { p_service_id: selected.id, p_quantity: quantity, p_note: new FormData(event.currentTarget).get('note'), p_coupon_code: coupon || null }); if (error) return notify(error.message); await refresh(); notify('Đơn hàng đã được tạo thành công.'); }
+  return <section className="page"><h1>Tạo đơn dịch vụ</h1><p className="sub">Điền thông tin yêu cầu. Hệ thống tính tổng tiền trước khi bạn xác nhận.</p><div className="order-layout"><form className="panel order-form" onSubmit={place}><h2><ShoppingCart size={21}/> Thông tin đơn hàng</h2><label className="field"><span>Dịch vụ</span><select value={serviceId} onChange={e => setServiceId(e.target.value)}>{services.map(s => <option value={s.id} key={s.id}>{s.name}</option>)}</select></label><div className="two-fields"><label className="field"><span>Gói dịch vụ</span><select><option>Gói tiêu chuẩn</option><option>Gói nâng cao</option><option>Gói ưu tiên</option></select></label><label className="field"><span>Số lượng</span><input type="number" min="1" value={quantity} onChange={e => setQuantity(Math.max(1, Number(e.target.value)))}/></label></div><label className="field"><span>Link / ghi chú yêu cầu</span><textarea name="note" placeholder="Nhập link hoặc mô tả chi tiết yêu cầu" required/></label><label className="field"><span>Mã giảm giá</span><div className="coupon"><input value={coupon} onChange={e => setCoupon(e.target.value)} placeholder="Ví dụ: QM10"/><button type="button" onClick={() => coupon.toUpperCase() === 'QM10' ? notify('Đã áp dụng giảm giá 10%') : notify('Nhập QM10 để dùng mã demo')}>Áp dụng</button></div></label><button className="primary-btn">Xác nhận đặt đơn <ChevronRight size={17}/></button></form><aside className="panel summary"><h2>Chi tiết thanh toán</h2><div className="summary-service"><span className="service-icon">{selected.icon || '✦'}</span><div><b>{selected.name}</b><small>Gói tiêu chuẩn × {quantity}</small></div></div><Line label="Tạm tính" value={money(selected.price * quantity)}/><Line label="Giảm giá" value={discount ? '-' + money(discount) : '0đ'} green={discount > 0}/><Line label="Tổng thanh toán" value={money(total)} total/></aside></div></section> }
+function Line({ label, value, total, green }) { return <div className={'line ' + (total ? 'total' : '')}><span>{label}</span><b className={green ? 'green' : ''}>{value}</b></div> }
+function Orders({ orders }) { const content = orders.length ? orders : [{ id: 'QM-DEMO-001', services: { name: 'Thiết kế website' }, total_amount: 2500000, status: 'processing', created_at: new Date().toISOString() }]; return <section className="page"><h1>Đơn hàng</h1><p className="sub">Theo dõi trạng thái và lịch sử các dịch vụ bạn đã đặt.</p><div className="table-panel"><table><thead><tr><th>Mã đơn</th><th>Dịch vụ</th><th>Tổng tiền</th><th>Trạng thái</th><th>Thời gian</th></tr></thead><tbody>{content.map(o => <tr key={o.id}><td>#{String(o.id).slice(0, 10).toUpperCase()}</td><td>{o.services?.name || 'Dịch vụ QM STORE'}</td><td>{money(o.total_amount)}</td><td><span className={'status ' + o.status}>{o.status === 'completed' ? 'Hoàn thành' : o.status === 'processing' ? 'Đang xử lý' : 'Chờ xử lý'}</span></td><td>{new Date(o.created_at).toLocaleDateString('vi-VN')}</td></tr>)}</tbody></table></div></section> }
+function WalletView({ balance, notify }) { return <section className="page"><h1>Ví của tôi</h1><p className="sub">Quản lý số dư và thanh toán dịch vụ nhanh chóng.</p><div className="wallet-show"><span>QM WALLET</span><strong>{money(balance)}</strong><p>Số dư khả dụng</p><button onClick={() => notify('Tích hợp nạp tiền sẽ được kết nối qua cổng thanh toán của bạn.')}>Nạp tiền <Plus size={16}/></button></div><div className="panel info-card"><Gift/><div><b>Ưu đãi QM10</b><p>Giảm 10%, tối đa 50.000đ cho đơn từ 100.000đ.</p></div></div></section> }
+function Profile({ profile, notify }) { const [name, setName] = useState(profile?.full_name || ''); async function save(e) { e.preventDefault(); if (!supabase) return notify('Chế độ demo: thêm Supabase để lưu hồ sơ.'); const { error } = await supabase.from('profiles').update({ full_name: name }).eq('id', profile.id); notify(error ? error.message : 'Đã lưu thông tin hồ sơ.'); } return <section className="page"><h1>Hồ sơ cá nhân</h1><p className="sub">Cập nhật thông tin và bảo mật tài khoản của bạn.</p><form className="panel profile-form" onSubmit={save}><h2><UserRound size={20}/> Thông tin cơ bản</h2><Field label="Họ và tên" value={name} onChange={e => setName(e.target.value)} required/><Field label="Email" value={profile?.email || ''} disabled/><button className="primary-btn">Lưu thay đổi</button></form></section> }
+function Admin({ services, refresh, notify }) { async function update(service, price) { const { error } = await supabase.from('services').update({ price: Number(price) }).eq('id', service.id); if (error) notify(error.message); else { await refresh(); notify('Đã cập nhật giá dịch vụ.'); } } return <section className="page"><h1>Quản trị dịch vụ</h1><p className="sub">Cập nhật bảng giá. Chỉ tài khoản Admin mới thấy khu vực này.</p><div className="table-panel"><table><thead><tr><th>Dịch vụ</th><th>Danh mục</th><th>Giá từ</th><th>Trạng thái</th><th/></tr></thead><tbody>{services.map(s => <AdminRow key={s.id} service={s} update={update}/>)}</tbody></table></div></section> }
+function AdminRow({ service, update }) { const [price, setPrice] = useState(service.price); return <tr><td><b>{service.name}</b></td><td>{service.category}</td><td><input className="price-input" type="number" value={price} onChange={e => setPrice(e.target.value)}/></td><td><span className="status completed">Đang bán</span></td><td><button className="small-btn" onClick={() => update(service, price)}>Lưu</button></td></tr> }
