@@ -141,14 +141,16 @@ function Admin({ services, refresh, notify }) {
 
   async function createService(event) {
     event.preventDefault()
-    const { error } = await supabase.from('services').insert({
+    const { data: createdService, error } = await supabase.from('services').insert({
       name: draft.name.trim(), category: draft.category.trim(), description: draft.description.trim(),
       price: Number(draft.price), unit: draft.unit.trim() || '/ gói', sort_order: catalog.length + 1
-    })
+    }).select().single()
     if (error) return notify(error.message)
     setDraft({ name: '', category: '', description: '', price: '', unit: '/ gói' })
     await Promise.all([refresh(), loadCatalog()])
-    notify('Đã thêm dịch vụ mới.')
+    setSelectedServiceId(createdService.id)
+    setItemParentId('')
+    notify('Đã thêm dịch vụ mẹ. Bây giờ thêm danh mục con.')
   }
   async function updatePrice(service, price) {
     const { error } = await supabase.from('services').update({ price: Number(price) }).eq('id', service.id)
@@ -215,7 +217,7 @@ function Admin({ services, refresh, notify }) {
 }
 function AdminServiceRow({ service, updatePrice, toggleService, deleteService, onSelectService }) {
   const [price, setPrice] = useState(service.price)
-  return <tr><td><b>{service.name}</b><small className="table-sub">{service.description}</small></td><td>{service.category}</td><td><input className="price-input" type="number" min="0" value={price} onChange={e => setPrice(e.target.value)}/></td><td><span className={'status ' + (service.is_active ? 'completed' : 'failed')}>{service.is_active ? 'Đang bán' : 'Đang ẩn'}</span></td><td className="row-actions"><button className="small-btn" onClick={() => updatePrice(service, price)}>Lưu giá</button><button className="ghost-btn" onClick={() => onSelectService(service.id)}>Hạng mục</button><button className="ghost-btn" onClick={() => toggleService(service)}>{service.is_active ? 'Ẩn' : 'Mở bán'}</button><button className="danger-btn" onClick={() => deleteService(service)}>Xóa</button></td></tr>
+  return <tr><td><button className="service-tree-link" onClick={() => onSelectService(service.id)}><b>{service.name}</b><small className="table-sub">{service.description}</small></button></td><td>{service.category}</td><td><input className="price-input" type="number" min="0" value={price} onChange={e => setPrice(e.target.value)}/></td><td><span className={'status ' + (service.is_active ? 'completed' : 'failed')}>{service.is_active ? 'Đang bán' : 'Đang ẩn'}</span></td><td className="row-actions"><button className="small-btn" onClick={() => updatePrice(service, price)}>Lưu giá</button><button className="ghost-btn" onClick={() => onSelectService(service.id)}>Mở danh mục con</button><button className="ghost-btn" onClick={() => toggleService(service)}>{service.is_active ? 'Ẩn' : 'Mở bán'}</button><button className="danger-btn" onClick={() => deleteService(service)}>Xóa</button></td></tr>
 }
 function ServiceItemsEditor({ service, itemDraft, setItemDraft, parentId, setParentId, addItem, deleteItem, close }) {
   if (!service) return null
