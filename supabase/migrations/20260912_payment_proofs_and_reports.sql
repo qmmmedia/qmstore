@@ -19,6 +19,8 @@ create table if not exists public.store_settings (
 insert into public.store_settings (id) values (1) on conflict (id) do nothing;
 
 alter table public.store_settings enable row level security;
+drop policy if exists "settings: signed in users can read" on public.store_settings;
+drop policy if exists "settings: admins manage" on public.store_settings;
 create policy "settings: signed in users can read" on public.store_settings for select to authenticated using (true);
 create policy "settings: admins manage" on public.store_settings for all to authenticated using (public.is_admin()) with check (public.is_admin());
 
@@ -28,6 +30,9 @@ insert into storage.buckets (id, name, public)
 values ('topup-proofs', 'topup-proofs', false)
 on conflict (id) do nothing;
 
+drop policy if exists "topup proofs: users read own or admin" on storage.objects;
+drop policy if exists "topup proofs: users upload own" on storage.objects;
+drop policy if exists "topup proofs: users delete own or admin" on storage.objects;
 create policy "topup proofs: users read own or admin" on storage.objects for select to authenticated
 using (bucket_id = 'topup-proofs' and ((storage.foldername(name))[1] = auth.uid()::text or public.is_admin()));
 create policy "topup proofs: users upload own" on storage.objects for insert to authenticated
