@@ -134,3 +134,9 @@ insert into public.coupons (code, discount_percent, max_discount, min_order_amou
 
 -- After registering your first account, promote it manually once:
 -- update public.profiles set role = 'admin' where email = 'your-admin@email.com';
+
+-- Backfill profiles when Auth users existed before this schema was installed.
+insert into public.profiles (id, full_name, email)
+select id, raw_user_meta_data ->> 'full_name', email
+from auth.users
+on conflict (id) do nothing;
