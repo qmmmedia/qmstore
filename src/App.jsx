@@ -36,8 +36,8 @@ export default function App() {
 
   async function loadServices() {
     if (!supabase) return
-    const { data } = await supabase.from('services').select('*').eq('is_active', true).order('sort_order')
-    if (data?.length) setServices(data.map(s => ({ ...s, price: Number(s.price), unit: s.unit || ' / gói', icon: '✦' })))
+    const { data } = await supabase.from('services').select('*, service_items(*)').eq('is_active', true).order('sort_order')
+    if (data?.length) setServices(data.map(s => ({ ...s, price: Number(s.price), unit: s.unit || ' / gói', icon: '✦', items: s.service_items || [] })))
   }
   async function loadAccount() {
     const [{ data: profileRow }, { data: orderRows }] = await Promise.all([
@@ -96,7 +96,7 @@ function Home({ setScreen, services, balance, orders }) {
 function SectionTitle({ title, action, onClick }) { return <div className="section-title"><h2>{title}</h2>{action && <button onClick={onClick}>{action} <ChevronRight size={15}/></button>}</div> }
 function Metric({ label, value, hint }) { return <article className="metric"><span>{label}</span><strong>{value}</strong><small>↗ {hint}</small></article> }
 function Services({ services, setScreen }) { return <section className="page"><h1>Dịch vụ QM STORE</h1><p className="sub">Giải pháp digital minh bạch, triển khai theo yêu cầu của bạn.</p><div className="service-grid all-services">{services.map(s => <ServiceCard key={s.id} service={s} onOrder={() => setScreen('order')}/>)}</div></section> }
-function ServiceCard({ service, onOrder }) { return <article className="service-card"><div className="service-icon">{service.icon || '✦'}</div><span className="available">ĐANG BÁN</span><h3>{service.name}</h3><p>{service.description}</p><b>{money(service.price)}<small>{service.unit}</small></b><button onClick={onOrder}>Đặt dịch vụ <ChevronRight size={15}/></button></article> }
+function ServiceCard({ service, onOrder }) { return <article className="service-card"><div className="service-icon">{service.icon || '✦'}</div><span className="available">ĐANG BÁN</span><h3>{service.name}</h3><p>{service.description}</p>{service.items?.length > 0 && <ul className="service-items">{service.items.slice(0, 3).map(item => <li key={item.id}>{item.title}</li>)}</ul>}<b>{money(service.price)}<small>{service.unit}</small></b><button onClick={onOrder}>Đặt dịch vụ <ChevronRight size={15}/></button></article> }
 
 function Order({ services, session, balance, refresh, notify }) { const [serviceId, setServiceId] = useState(services[0]?.id); const [quantity, setQuantity] = useState(1); const [coupon, setCoupon] = useState(''); const selected = useMemo(() => services.find(s => s.id === serviceId) || services[0], [services, serviceId]); const discount = coupon.toUpperCase() === 'QM10' ? Math.min(50000, Math.round(selected.price * quantity * .1)) : 0; const total = selected.price * quantity - discount
   async function place(event) { event.preventDefault(); if (!supabase) return notify('Chế độ demo: thêm Supabase vào .env.local để tạo đơn thật.'); const { error } = await supabase.rpc('create_order', { p_service_id: selected.id, p_quantity: quantity, p_note: new FormData(event.currentTarget).get('note'), p_coupon_code: coupon || null }); if (error) return notify(error.message); await refresh(); notify('Đơn hàng đã được tạo thành công.'); }
@@ -110,6 +110,8 @@ function Admin({ services, refresh, notify }) {
   const [orders, setOrders] = useState([])
   const [catalog, setCatalog] = useState(services)
   const [draft, setDraft] = useState({ name: '', category: '', description: '', price: '', unit: '/ gói' })
+  const [selectedServiceId, setSelectedServiceId] = useState(null)
+  const [itemDraft, setItemDraft] = useState({ title: '', description: '' })
 
   async function loadOrders() {
     const { data, error } = await supabase.from('orders').select('*, profiles(full_name,email), services(name)').order('created_at', { ascending: false })
@@ -117,9 +119,9 @@ function Admin({ services, refresh, notify }) {
     setOrders(data || [])
   }
   async function loadCatalog() {
-    const { data, error } = await supabase.from('services').select('*').order('sort_order')
+    const { data, error } = await supabase.from('services').select('*, service_items(*)').order('sort_order')
     if (error) return notify(error.message)
-    setCatalog(data?.map(service => ({ ...service, price: Number(service.price) })) || [])
+    setCatalog(data?.map(service => ({ ...service, price: Number(service.price), items: service.service_items || [] })) || [])
   }
   useEffect(() => { loadOrders(); loadCatalog() }, [])
 
@@ -153,6 +155,26 @@ function Admin({ services, refresh, notify }) {
     await Promise.all([refresh(), loadCatalog()])
     notify('Đã xóa dịch vụ.')
   }
+  async function addServiceItem(event) {
+    event.preventDefault()
+    const service = catalog.find(entry => entry.id === selectedServiceId)
+    if (!service) return
+    const { error } = await supabase.from('service_items').insert({
+      service_id: service.id, title: itemDraft.title.trim(), description: itemDraft.description.trim() || null,
+      sort_order: service.items.length + 1
+    })
+    if (error) return notify(error.message)
+    setItemDraft({ title: '', description: '' })
+    await Promise.all([refresh(), loadCatalog()])
+    notify('Đã thêm hạng mục nhỏ.')
+  }
+  async function deleteServiceItem(item) {
+    if (!window.confirm(`Xóa hạng mục “${item.title}”?`)) return
+    const { error } = await supabase.from('service_items').delete().eq('id', item.id)
+    if (error) return notify(error.message)
+    await Promise.all([refresh(), loadCatalog()])
+    notify('Đã xóa hạng mục nhỏ.')
+  }
   async function changeStatus(order, status) {
     const { error } = await supabase.from('orders').update({ status }).eq('id', order.id)
     if (error) return notify(error.message)
@@ -171,12 +193,17 @@ function Admin({ services, refresh, notify }) {
         <div className="two-fields"><Field label="Giá (VNĐ)" type="number" min="0" value={draft.price} onChange={e => setDraft({ ...draft, price: e.target.value })} required/><Field label="Đơn vị" value={draft.unit} onChange={e => setDraft({ ...draft, unit: e.target.value })} required/></div>
         <button className="primary-btn">Thêm dịch vụ <ChevronRight size={17}/></button>
       </form>
-      <div className="table-panel"><table><thead><tr><th>Dịch vụ</th><th>Danh mục</th><th>Giá từ</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>{catalog.map(s => <AdminServiceRow key={s.id} service={s} updatePrice={updatePrice} toggleService={toggleService} deleteService={deleteService}/>)}</tbody></table></div>
+      <div className="table-panel"><table><thead><tr><th>Dịch vụ</th><th>Danh mục</th><th>Giá từ</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>{catalog.map(s => <AdminServiceRow key={s.id} service={s} updatePrice={updatePrice} toggleService={toggleService} deleteService={deleteService} setSelectedServiceId={setSelectedServiceId}/>)}</tbody></table></div>
+      {selectedServiceId && <ServiceItemsEditor service={catalog.find(service => service.id === selectedServiceId)} itemDraft={itemDraft} setItemDraft={setItemDraft} addItem={addServiceItem} deleteItem={deleteServiceItem} close={() => setSelectedServiceId(null)}/>} 
     </> : <div className="table-panel"><table><thead><tr><th>Mã đơn</th><th>Khách hàng</th><th>Dịch vụ</th><th>Tổng tiền</th><th>Trạng thái</th><th>Cập nhật</th></tr></thead><tbody>{orders.length ? orders.map(o => <tr key={o.id}><td>#{String(o.id).slice(0, 8).toUpperCase()}</td><td><b>{o.profiles?.full_name || 'Khách hàng'}</b><small className="table-sub">{o.profiles?.email}</small></td><td>{o.services?.name || 'Dịch vụ QM STORE'}</td><td>{money(o.total_amount)}</td><td><span className={'status ' + o.status}>{statusLabel(o.status)}</span></td><td><select className="status-select" value={o.status} onChange={e => changeStatus(o, e.target.value)}><option value="pending">Chờ xử lý</option><option value="processing">Đang xử lý</option><option value="completed">Hoàn thành</option><option value="failed">Thất bại</option><option value="refunded">Đã hoàn tiền</option></select></td></tr>) : <tr><td colSpan="6" className="empty-cell">Chưa có đơn hàng nào.</td></tr>}</tbody></table></div>}
   </section>
 }
-function AdminServiceRow({ service, updatePrice, toggleService, deleteService }) {
+function AdminServiceRow({ service, updatePrice, toggleService, deleteService, setSelectedServiceId }) {
   const [price, setPrice] = useState(service.price)
-  return <tr><td><b>{service.name}</b><small className="table-sub">{service.description}</small></td><td>{service.category}</td><td><input className="price-input" type="number" min="0" value={price} onChange={e => setPrice(e.target.value)}/></td><td><span className={'status ' + (service.is_active ? 'completed' : 'failed')}>{service.is_active ? 'Đang bán' : 'Đang ẩn'}</span></td><td className="row-actions"><button className="small-btn" onClick={() => updatePrice(service, price)}>Lưu giá</button><button className="ghost-btn" onClick={() => toggleService(service)}>{service.is_active ? 'Ẩn' : 'Mở bán'}</button><button className="danger-btn" onClick={() => deleteService(service)}>Xóa</button></td></tr>
+  return <tr><td><b>{service.name}</b><small className="table-sub">{service.description}</small></td><td>{service.category}</td><td><input className="price-input" type="number" min="0" value={price} onChange={e => setPrice(e.target.value)}/></td><td><span className={'status ' + (service.is_active ? 'completed' : 'failed')}>{service.is_active ? 'Đang bán' : 'Đang ẩn'}</span></td><td className="row-actions"><button className="small-btn" onClick={() => updatePrice(service, price)}>Lưu giá</button><button className="ghost-btn" onClick={() => setSelectedServiceId(service.id)}>Hạng mục</button><button className="ghost-btn" onClick={() => toggleService(service)}>{service.is_active ? 'Ẩn' : 'Mở bán'}</button><button className="danger-btn" onClick={() => deleteService(service)}>Xóa</button></td></tr>
+}
+function ServiceItemsEditor({ service, itemDraft, setItemDraft, addItem, deleteItem, close }) {
+  if (!service) return null
+  return <section className="panel service-items-editor"><div className="editor-heading"><div><h2>Hạng mục nhỏ</h2><p>{service.name}</p></div><button className="square" type="button" onClick={close}><X size={18}/></button></div><form onSubmit={addItem}><div className="two-fields"><Field label="Tên hạng mục" value={itemDraft.title} onChange={e => setItemDraft({ ...itemDraft, title: e.target.value })} placeholder="Ví dụ: Tối ưu trang chủ" required/><Field label="Mô tả ngắn" value={itemDraft.description} onChange={e => setItemDraft({ ...itemDraft, description: e.target.value })} placeholder="Nội dung bao gồm"/></div><button className="primary-btn">Thêm hạng mục <ChevronRight size={17}/></button></form><div className="item-list">{service.items.length ? service.items.slice().sort((a, b) => a.sort_order - b.sort_order).map(item => <div key={item.id} className="item-row"><div><b>{item.title}</b>{item.description && <small>{item.description}</small>}</div><button className="danger-btn" onClick={() => deleteItem(item)}>Xóa</button></div>) : <p className="empty-note">Chưa có hạng mục nhỏ cho dịch vụ này.</p>}</div></section>
 }
 function statusLabel(status) { return ({ pending: 'Chờ xử lý', processing: 'Đang xử lý', completed: 'Hoàn thành', failed: 'Thất bại', refunded: 'Đã hoàn tiền' })[status] || status }
